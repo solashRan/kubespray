@@ -3,8 +3,10 @@ import sys
 import json
 import socket
 import logging
+import os.path
 import argparse
 import subprocess
+import contextlib
 
 import jinja2
 import paramiko
@@ -30,6 +32,49 @@ def get_mlnx_ip_addr(hostname=None, username=None, password=None):
     except Exception:
         raise Exception('Failed to connect/get bond0 IP from {}'.format(hostname))
     return mlnx_ip
+
+
+class DataNode(object):
+
+    def __init__(self, mgmt_ip, user, password):
+        self.mgmt_ip = mgmt_ip
+        self.user = user
+        self.password = password
+
+    @classmethod
+    def from_naipi_config(cls, path):
+        with open(path) as fh:
+            config = json.load(fh)
+
+        return [cls._from_dict(node) for node in config['setup']['nodes']]
+
+    @classmethod
+    def _from_dict(cls, data):
+        return cls(data['address'], data['username'], data['password'])
+
+    def put_file(self, local_path, dest_path):
+        dest_dir = os.path.dirname(dest_path)
+        with self._stftp() as sftp:
+            try:
+                sftp.mkdir(dest_dir, 0o755)
+            except IOError:
+                # if folder exists its ok
+                pass
+
+            sftp.put(local_path, dest_path)
+
+    @contextlib.contextmanager
+    def _stftp(self):
+        transport = paramiko.Transport((self.mgmt_ip, 22))
+        transport.connect(username=self.user, password=self.password)
+        try:
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            try:
+                yield sftp
+            finally:
+                sftp.close()
+        finally:
+            transport.close()
 
 
 class Host(object):
@@ -77,6 +122,12 @@ def invoke():
          '-u', 'iguazio', '-b', '--skip', '-tags=igz-online'])
 
 
+def copy_admin_conf_to_data_nodes(naipi_config):
+    data_nodes = DataNode.from_naipi_config(naipi_config)
+    for data_node in data_nodes:
+        data_node.put_file('inventory/igz/artifacts/admin.conf', '/home/iguazio/.kube/admin.conf')
+
+
 def _parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('naipi_config')
@@ -100,6 +151,9 @@ def main():
 
     logging.info('start executing kubespray deploy')
     invoke()
+    logging.info('k8s deployed finished\ndeploying admin.conf on data nodes')
+    copy_admin_conf_to_data_nodes(args.naipi_config)
+    logging.info('admin.conf copy finished')
 
 
 if __name__ == '__main__':
