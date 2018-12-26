@@ -2,5 +2,5 @@
 
 set -ex
 
-pipenv install -r requirements.txt
-pipenv run ./run.py $@
+pipenv --two install -r requirements.txt
+pipenv --two run ./run.py $@
