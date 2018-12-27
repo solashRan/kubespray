@@ -116,12 +116,6 @@ def _gen_templates(path, **kwargs):
         fh.write(generated_data)
 
 
-def invoke():
-    subprocess.check_call(
-        ['ansible-playbook', '-i', 'inventory/igz/hosts.ini', 'cluster.yml',
-         '-u', 'iguazio', '-b', '--skip', '-tags=igz-online'])
-
-
 def copy_admin_conf_to_data_nodes(naipi_config):
     data_nodes = DataNode.from_naipi_config(naipi_config)
     for data_node in data_nodes:
@@ -130,6 +124,7 @@ def copy_admin_conf_to_data_nodes(naipi_config):
 
 def _parse():
     parser = argparse.ArgumentParser()
+    parser.add_argument('action', choices=('prepare', 'post'))
     parser.add_argument('naipi_config')
     return parser.parse_args()
 
@@ -140,20 +135,20 @@ def main():
 
     args = _parse()
 
-    hosts = Host.from_naipi_config(args.naipi_config)
-    mgmt_ips = [host.mgmt_ip for host in hosts]
+    if args.action == 'prepare':
+        hosts = Host.from_naipi_config(args.naipi_config)
+        mgmt_ips = [host.mgmt_ip for host in hosts]
 
-    logging.info('generating template files')
-    templates = ['inventory/igz/hosts.ini', 'variables.yml']
-    for template in templates:
-        _gen_templates(template, hosts=hosts,
-                       supplementary_addresses_in_ssl_keys=mgmt_ips)
+        logging.info('generating template files')
+        templates = ['inventory/igz/hosts.ini', 'variables.yml']
+        for template in templates:
+            _gen_templates(template, hosts=hosts,
+                           supplementary_addresses_in_ssl_keys=mgmt_ips)
 
-    logging.info('start executing kubespray deploy')
-    invoke()
-    logging.info('k8s deployed finished\ndeploying admin.conf on data nodes')
-    copy_admin_conf_to_data_nodes(args.naipi_config)
-    logging.info('admin.conf copy finished')
+    if args.action == 'post':
+        logging.info('deploying admin.conf on data nodes')
+        copy_admin_conf_to_data_nodes(args.naipi_config)
+        logging.info('admin.conf copy finished')
 
 
 if __name__ == '__main__':

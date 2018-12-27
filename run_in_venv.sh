@@ -3,4 +3,6 @@
 set -ex
 
 pipenv --two install -r requirements.txt
-pipenv run ./run.py $@
+pipenv run ./run_tools.py prepare $@
+ansible-playbook -i inventory/igz/hosts.ini cluster.yml -u iguazio -b --skip -tags=igz-online
+pipenv run ./run_tools.py post $@
