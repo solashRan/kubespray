@@ -3,4 +3,4 @@
 set -ex
 
 pipenv --two install -r requirements.txt
-pipenv --two run ./run.py $@
+pipenv run ./run.py $@
