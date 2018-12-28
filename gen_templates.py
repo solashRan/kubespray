@@ -5,7 +5,6 @@ import socket
 import logging
 import os.path
 import argparse
-import subprocess
 import contextlib
 
 import jinja2
@@ -34,7 +33,7 @@ def get_mlnx_ip_addr(hostname=None, username=None, password=None):
     return mlnx_ip
 
 
-class DataNode(object):
+class ClientNode(object):
 
     def __init__(self, mgmt_ip, user, password):
         self.mgmt_ip = mgmt_ip
@@ -42,19 +41,13 @@ class DataNode(object):
         self.password = password
 
     @classmethod
-    def from_naipi_config(cls, path):
-        with open(path) as fh:
-            config = json.load(fh)
-
-        return [cls._from_dict(node) for node in config['setup']['nodes']]
-
-    @classmethod
-    def _from_dict(cls, data):
-        return cls(data['address'], data['username'], data['password'])
+    def from_json(cls, data):
+        data = json.loads(data)
+        return cls(data['mgmt_ip'], data['user'], data['password'])
 
     def put_file(self, local_path, dest_path):
         dest_dir = os.path.dirname(dest_path)
-        with self._stftp() as sftp:
+        with self._sftp() as sftp:
             try:
                 sftp.mkdir(dest_dir, 0o755)
             except IOError:
@@ -64,7 +57,7 @@ class DataNode(object):
             sftp.put(local_path, dest_path)
 
     @contextlib.contextmanager
-    def _stftp(self):
+    def _sftp(self):
         transport = paramiko.Transport((self.mgmt_ip, 22))
         transport.connect(username=self.user, password=self.password)
         try:
@@ -77,30 +70,21 @@ class DataNode(object):
             transport.close()
 
 
-class Host(object):
+class ServerHost(object):
 
-    def __init__(self, mgmt_ip, user, password, has_etcd, is_master):
+    def __init__(self, mgmt_ip, user, password, rdma_ip, has_etcd, is_master):
         self.mgmt_ip = mgmt_ip
         self.user = user
         self.password = password
-        self.rdma_ip = get_mlnx_ip_addr(mgmt_ip, user, password)
+        self.rdma_ip = rdma_ip or get_mlnx_ip_addr(mgmt_ip, user, password)
         self.has_etcd = has_etcd
         self.is_master = is_master
 
     @classmethod
-    def from_naipi_config(cls, path):
-        with open(path) as fh:
-            config = json.load(fh)
-
-        return [cls._from_dict(client)
-                for client in config['setup']['clients'] if 'kube-node' in client['roles']]
-
-    @classmethod
-    def _from_dict(cls, data):
-        roles = data['roles']
-        has_etcd = 'kube-etcd' in roles
-        is_master = 'kube-master' in roles
-        return cls(data['address'], data['username'], data['password'], has_etcd, is_master)
+    def from_json(cls, data):
+        data = json.loads(data)
+        return cls(data['mgmt_ip'], data['user'], data['password'], data.get('rdma_ip'),
+                   data['has_etcd'], data['is_master'])
 
 
 def _gen_templates(path, **kwargs):
@@ -116,16 +100,16 @@ def _gen_templates(path, **kwargs):
         fh.write(generated_data)
 
 
-def copy_admin_conf_to_data_nodes(naipi_config):
-    data_nodes = DataNode.from_naipi_config(naipi_config)
-    for data_node in data_nodes:
-        data_node.put_file('inventory/igz/artifacts/admin.conf', '/home/iguazio/.kube/admin.conf')
+# def copy_admin_conf_to_data_nodes(naipi_config):
+#     data_nodes = DataNode.from_naipi_config(naipi_config)
+#     for data_node in data_nodes:
+#         data_node.put_file('inventory/igz/artifacts/admin.conf', '/home/iguazio/.kube/admin.conf')
 
 
 def _parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=('prepare', 'post'))
-    parser.add_argument('naipi_config')
+    parser.add_argument('-s', '--server', dest='servers', action='append', type=ServerHost.from_json, default=[])
+    parser.add_argument('-c', '--client', dest='clients', action='append', type=ClientNode.from_json, default=[])
     return parser.parse_args()
 
 
@@ -135,20 +119,10 @@ def main():
 
     args = _parse()
 
-    if args.action == 'prepare':
-        hosts = Host.from_naipi_config(args.naipi_config)
-        mgmt_ips = [host.mgmt_ip for host in hosts]
-
-        logging.info('generating template files')
-        templates = ['inventory/igz/hosts.ini', 'variables.yml']
-        for template in templates:
-            _gen_templates(template, hosts=hosts,
-                           supplementary_addresses_in_ssl_keys=mgmt_ips)
-
-    if args.action == 'post':
-        logging.info('deploying admin.conf on data nodes')
-        copy_admin_conf_to_data_nodes(args.naipi_config)
-        logging.info('admin.conf copy finished')
+    logging.info('generating template files')
+    templates = ['inventory/igz/hosts.ini', 'variables.yml']
+    for template in templates:
+        _gen_templates(template, servers=args.servers, clients=args.clients)
 
 
 if __name__ == '__main__':
