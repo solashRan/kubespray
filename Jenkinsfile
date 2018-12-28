@@ -1,4 +1,4 @@
-@Library('pipelinex@development') _
+@Library('pipelinex@_artifactory_registry') _
 
 properties([
     buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '30', numToKeepStr: '1000')),
@@ -15,15 +15,14 @@ nodes.any_builder_node {
         checkout scm
     }
 
-    def image_tag = "${env.BRANCH}-${env.BUILD_ID}"
-    try {
-        def image = stage('build') {
-            return docker.build("kubespray:${image_tag}")
-        }
+    def image = stage('build') {
+        return docker.build("kubespray:${env.BRANCH_NAME}-${env.BUILD_ID}")
+    }
 
+    try {
         def registry = ['artifactory.iguazeng.com:6555', 'rans_test', 'iguazio-prod-artifactory-credentials']
         dockerx.images_push([image.id], registry)
     } finally {
-        dockerx.delete_images_by_tag(image_tag)
+        common.shell(['docker', 'rmi', image.id])
     }
 }}}
