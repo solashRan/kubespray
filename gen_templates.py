@@ -87,7 +87,7 @@ def from_naipi(data):
     config = json.loads(data)['setup']
     servers = (ServerHost.from_naipi(c) for c in config['clients'])
     servers = [s for s in servers if s is not None]
-    clients = [ClientNode.from_naipi(c) for c in data['nodes']]
+    clients = [ClientNode.from_naipi(c) for c in config['nodes']]
     return servers, clients
 
 
@@ -96,8 +96,8 @@ def _parse():
     parser.add_argument('-s', '--server', dest='servers', action='append', default=[])
     parser.add_argument('-c', '--client', dest='clients', action='append', default=[])
     parser.add_argument('-u', '--user', default='iguazio')
-    parser.add_argument('password')
-    parser.add_argument('-n', '--naipi-config', type=json.loads)
+    parser.add_argument('--password')
+    parser.add_argument('-n', '--naipi-config')
     return parser.parse_args()
 
 

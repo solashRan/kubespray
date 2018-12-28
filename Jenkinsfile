@@ -16,7 +16,7 @@ nodes.any_builder_node {
     }
 
     def image = stage('build') {
-        return docker.build("kubespray:${env.BRANCH_NAME}-${env.BUILD_ID}")
+        return docker.build("kubespray:${env.BRANCH_NAME}")
     }
 
     try {
